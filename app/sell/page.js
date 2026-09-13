@@ -59,7 +59,6 @@ export default function SellPage() {
     setErrorMsg('');
     setSuccessMsg('');
 
-    // ตรวจสอบข้อมูลก่อน
     if (!selectedProductId) {
       setErrorMsg('กรุณาเลือกสินค้า');
       return;
@@ -73,7 +72,6 @@ export default function SellPage() {
       return;
     }
 
-    // ตรวจสอบ stock คงเหลือว่าพอหรือไม่
     if (qtyNumber > selectedProduct.stock) {
       setErrorMsg(
         `สินค้าคงเหลือไม่พอ (คงเหลือ ${selectedProduct.stock} ${selectedProduct.unit})`
@@ -83,7 +81,6 @@ export default function SellPage() {
 
     setProcessing(true);
 
-    // 1. บันทึกรายการขายลงตาราง sales
     const { error: saleError } = await supabase.from('sales').insert([
       {
         product_id: selectedProduct.id,
@@ -100,7 +97,6 @@ export default function SellPage() {
       return;
     }
 
-    // 2. อัปเดต stock ในตาราง products ให้ลดลงตามจำนวนที่ขาย
     const newStock = selectedProduct.stock - qtyNumber;
     const { error: updateError } = await supabase
       .from('products')
@@ -115,7 +111,6 @@ export default function SellPage() {
       return;
     }
 
-    // สำเร็จ: แจ้งเตือน รีเซ็ตฟอร์ม และโหลดรายการสินค้าใหม่ (stock อัปเดตแล้ว)
     setSuccessMsg(
       `ขาย "${selectedProduct.name}" จำนวน ${qtyNumber} ${selectedProduct.unit} สำเร็จ ยอดรวม ${totalPrice.toFixed(2)} บาท`
     );
@@ -133,3 +128,46 @@ export default function SellPage() {
 
       <div className="card">
         {loading ? (
+          <p>กำลังโหลดรายการสินค้า...</p>
+        ) : (
+          <form onSubmit={handleSell}>
+            <div className="form-row">
+              <select
+                value={selectedProductId}
+                onChange={(e) => setSelectedProductId(e.target.value)}
+              >
+                <option value="">-- เลือกสินค้า --</option>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name} ({Number(product.price).toFixed(2)} บาท/{product.unit})
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="number"
+                min="1"
+                placeholder="จำนวน"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+              />
+
+              <button type="submit" disabled={processing}>
+                {processing ? 'กำลังบันทึก...' : 'ขาย'}
+              </button>
+            </div>
+
+            {selectedProduct && (
+              <p>
+                คงเหลือในสต็อก: {selectedProduct.stock} {selectedProduct.unit} —{' '}
+                ราคาต่อหน่วย: {Number(selectedProduct.price).toFixed(2)} บาท
+              </p>
+            )}
+
+            <h3>ยอดรวม: {totalPrice.toFixed(2)} บาท</h3>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
