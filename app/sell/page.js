@@ -3,21 +3,20 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 
+// [เพิ่ม] เกณฑ์แจ้งเตือนสต็อกใกล้หมด
+const LOW_STOCK_THRESHOLD = 5;
+
 export default function SellPage() {
-  // รายการสินค้าทั้งหมด (สำหรับ dropdown)
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // สินค้าที่เลือก + จำนวนที่จะขาย
   const [selectedProductId, setSelectedProductId] = useState('');
   const [quantity, setQuantity] = useState('');
 
-  // สถานะข้อความแจ้งเตือน
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [processing, setProcessing] = useState(false);
 
-  // ดึงรายการสินค้าจาก Supabase
   const fetchProducts = async () => {
     setLoading(true);
     const { data, error } = await supabase
@@ -37,23 +36,38 @@ export default function SellPage() {
     fetchProducts();
   }, []);
 
-  // หาข้อมูลสินค้าที่ถูกเลือกอยู่ในปัจจุบัน
   const selectedProduct = products.find((p) => p.id === selectedProductId);
 
-  // คำนวณยอดรวม = ราคา x จำนวน
   const qtyNumber = parseInt(quantity, 10);
   const totalPrice =
     selectedProduct && !isNaN(qtyNumber) && qtyNumber > 0
       ? selectedProduct.price * qtyNumber
       : 0;
 
-  // ล้างฟอร์มหลังขายสำเร็จ
   const resetForm = () => {
     setSelectedProductId('');
     setQuantity('');
   };
 
-  // กดปุ่ม "ขาย"
+  // [เพิ่ม] ฟังก์ชันกลางสำหรับยิงข้อความไปที่ API route
+  // ใช้ try/catch คลุมไว้ ถ้าพลาดจะไม่กระทบ flow การขายที่สำเร็จไปแล้ว
+  const sendTelegramNotification = async (text) => {
+    try {
+      const res = await fetch('/api/notify-telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        console.error('Telegram notify failed:', data.error);
+      }
+    } catch (err) {
+      // ไม่ throw ต่อ เพื่อไม่ให้กระทบ UI การขาย
+      console.error('Telegram notify error:', err.message);
+    }
+  };
+
   const handleSell = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -109,6 +123,34 @@ export default function SellPage() {
       );
       setProcessing(false);
       return;
+    }
+
+    // [เพิ่ม] เตรียมข้อมูลเวลาปัจจุบันแบบอ่านง่าย (ไทย)
+    const nowText = new Date().toLocaleString('th-TH', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+
+    // [เพิ่ม] งานที่ 1: แจ้งเตือน Order เข้าใหม่ (ไม่ await แบบบล็อก UI — ยิงแบบ fire-and-forget)
+    const orderMessage =
+      `🛍️ <b>มีรายการขายใหม่!</b>\n` +
+      `- สินค้า: ${selectedProduct.name}\n` +
+      `- จำนวน: ${qtyNumber} ชิ้น\n` +
+      `- ราคารวม: ${totalPrice.toFixed(2)} บาท\n` +
+      `- สต๊อกคงเหลือปัจจุบัน: ${newStock} ชิ้น\n` +
+      `- เวลา: ${nowText}`;
+
+    sendTelegramNotification(orderMessage);
+
+    // [เพิ่ม] งานที่ 2: ถ้าสต็อกหลังตัด <= เกณฑ์ที่กำหนด ให้ยิงข้อความเตือนภัยแยกอีก 1 ข้อความ
+    if (newStock <= LOW_STOCK_THRESHOLD) {
+      const lowStockMessage =
+        `🚨 <b>[เตือนภัย] สต๊อกสินค้าใกล้หมด!</b>\n` +
+        `- สินค้า: ${selectedProduct.name}\n` +
+        `- คงเหลือเพียง: ${newStock} ชิ้น\n` +
+        `⚠️ กรุณาเติมสต๊อกสินค้าด่วน!`;
+
+      sendTelegramNotification(lowStockMessage);
     }
 
     setSuccessMsg(
